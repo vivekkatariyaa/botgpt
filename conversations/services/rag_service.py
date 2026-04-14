@@ -1,0 +1,188 @@
+"""
+RAGService — PDF ingestion + retrieval using LangChain.
+
+Pipeline:
+  1. Load PDF          → LangChain PyMuPDFLoader
+  2. Chunk text        → LangChain RecursiveCharacterTextSplitter
+  3. Embed chunks      → LangChain HuggingFaceEmbeddings (all-MiniLM-L6-v2, free + local)
+  4. Store in ChromaDB → LangChain Chroma vector store (persisted to disk)
+  5. Retrieve          → similarity search top-K chunks for a user query
+"""
+import logging
+import os
+
+from django.conf import settings
+
+from langchain_community.document_loaders import PyMuPDFLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.vectorstores import Chroma
+
+logger = logging.getLogger(__name__)
+
+# Embedding model — runs locally, no API key needed
+EMBEDDING_MODEL = "all-MiniLM-L6-v2"
+
+# Lazy-loaded singleton so the model is only loaded once
+_embeddings = None
+
+
+def get_embeddings() -> HuggingFaceEmbeddings:
+    """Return a cached HuggingFaceEmbeddings instance."""
+    global _embeddings
+    if _embeddings is None:
+        logger.info("Loading embedding model: %s", EMBEDDING_MODEL)
+        _embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
+    return _embeddings
+
+
+def _collection_dir(conversation_id: str) -> str:
+    """Each conversation gets its own sub-folder inside chroma_db."""
+    base = settings.CHROMA_PERSIST_DIR
+    path = os.path.join(base, f"conv_{str(conversation_id).replace('-', '_')}")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+class RAGService:
+    def __init__(self):
+        self.chunk_size    = settings.RAG_CHUNK_SIZE
+        self.chunk_overlap = settings.RAG_CHUNK_OVERLAP
+        self.top_k         = settings.RAG_TOP_K
+
+    # ── Ingestion ──────────────────────────────────────────────────────────
+
+    def ingest_document(self, document) -> int:
+        """
+        Load a PDF, chunk it with LangChain, embed + store in ChromaDB.
+
+        Parameters
+        ----------
+        document : Document model instance (must have .file_path.path and .conversation_id)
+
+        Returns
+        -------
+        int — number of chunks created
+        """
+        file_path = document.file_path.path
+        logger.info("Ingesting document: %s", document.filename)
+
+        # 1. Load PDF with LangChain PyMuPDFLoader
+        #    Returns a list of LangChain Document objects (one per page)
+        loader = PyMuPDFLoader(file_path)
+        pages  = loader.load()
+        logger.info("Loaded %d pages from %s", len(pages), document.filename)
+
+        if not pages:
+            raise ValueError(
+                f"Could not load '{document.filename}'. "
+                "Make sure it is a valid PDF file."
+            )
+
+        # Check if any page has actual text (image-only PDFs have no text layer)
+        total_text = " ".join(p.page_content.strip() for p in pages)
+        if not total_text.strip():
+            raise ValueError(
+                f"'{document.filename}' appears to be an image-based or scanned PDF "
+                "with no extractable text. Please use a text-based PDF "
+                "(e.g. a report, article, or document with selectable text)."
+            )
+
+        # 2. Chunk with LangChain RecursiveCharacterTextSplitter
+        #    Splits on paragraphs → sentences → words (smartest splitter in LangChain)
+        splitter = RecursiveCharacterTextSplitter(
+            chunk_size      = self.chunk_size,
+            chunk_overlap   = self.chunk_overlap,
+            length_function = len,
+        )
+        chunks = splitter.split_documents(pages)
+        logger.info("Created %d chunks from %s", len(chunks), document.filename)
+
+        if not chunks:
+            raise ValueError(
+                f"No text chunks could be created from '{document.filename}'. "
+                "The PDF may be image-based or contain only graphics."
+            )
+
+        # 3 + 4. Embed chunks + store in ChromaDB (LangChain manages both)
+        persist_dir = _collection_dir(str(document.conversation_id))
+        Chroma.from_documents(
+            documents        = chunks,
+            embedding        = get_embeddings(),
+            persist_directory= persist_dir,
+            collection_name  = "documents",
+        )
+        logger.info("Stored %d chunks in ChromaDB at %s", len(chunks), persist_dir)
+
+        # Save chunk records in Django DB for reference
+        from conversations.models import DocumentChunk
+        chunk_objs = [
+            DocumentChunk(
+                document    = document,
+                chunk_text  = c.page_content,
+                chunk_index = i,
+                embedding_id= f"doc_{document.id}_chunk_{i}",
+            )
+            for i, c in enumerate(chunks)
+        ]
+        DocumentChunk.objects.bulk_create(chunk_objs)
+
+        return len(chunks)
+
+    # ── Retrieval ──────────────────────────────────────────────────────────
+
+    def retrieve(self, query: str, conversation_id: str) -> str:
+        """
+        Retrieve top-K relevant chunks for a user query using LangChain.
+
+        Parameters
+        ----------
+        query           : user's message
+        conversation_id : used to locate the right ChromaDB collection
+
+        Returns
+        -------
+        str — concatenated relevant chunks (ready to inject into LLM prompt)
+        """
+        persist_dir = _collection_dir(conversation_id)
+
+        # Check if any documents have been ingested for this conversation
+        if not os.path.exists(persist_dir) or not os.listdir(persist_dir):
+            logger.debug("No ChromaDB collection found for conversation %s", conversation_id)
+            return ""
+
+        try:
+            # Load existing ChromaDB collection
+            vectorstore = Chroma(
+                persist_directory = persist_dir,
+                embedding_function= get_embeddings(),
+                collection_name   = "documents",
+            )
+
+            # LangChain similarity search — returns top-K Document objects
+            results = vectorstore.similarity_search(query, k=self.top_k)
+
+            if not results:
+                return ""
+
+            # Join chunks with separator — ready to inject as context
+            context = "\n\n---\n\n".join(doc.page_content for doc in results)
+            logger.debug(
+                "RAG retrieved %d chunks for query: %s...",
+                len(results), query[:50]
+            )
+            return context
+
+        except Exception as exc:
+            logger.error("RAG retrieval failed for conversation %s: %s", conversation_id, exc)
+            return ""
+
+    # ── Cleanup ────────────────────────────────────────────────────────────
+
+    def delete_collection(self, conversation_id: str) -> None:
+        """Delete the ChromaDB folder for a conversation when it's deleted."""
+        import shutil
+        persist_dir = _collection_dir(conversation_id)
+        if os.path.exists(persist_dir):
+            shutil.rmtree(persist_dir)
+            logger.info("Deleted ChromaDB collection for conversation %s", conversation_id)
