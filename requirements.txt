@@ -11,8 +11,7 @@ requests
 pytest
 pytest-django
 pymupdf==1.27.2.2
-chromadb>=0.6.0
+faiss-cpu==1.13.2
 sentence-transformers==3.0.1
-langchain==0.3.25
-langchain-community==0.3.24
-langchain-text-splitters==0.3.8
+langchain==1.2.15
+langchain-community==0.4.1
