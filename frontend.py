@@ -1,7 +1,8 @@
+import os
 import streamlit as st
 import requests
 
-API_BASE = "http://localhost:8000/api"
+API_BASE = os.environ.get("API_BASE_URL", "http://localhost:8000/api")
 
 # ─── Page config ─────────────────────────────────────────────────────────────
 st.set_page_config(
