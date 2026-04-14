@@ -152,7 +152,7 @@ GROQ_MAX_TOKENS     = int(os.environ.get('GROQ_MAX_TOKENS', '1024'))
 CONTEXT_TOKEN_LIMIT = int(os.environ.get('CONTEXT_TOKEN_LIMIT', '6000'))
 
 # RAG
-CHROMA_PERSIST_DIR  = os.environ.get('CHROMA_PERSIST_DIR', str(BASE_DIR / 'chroma_db'))
+CHROMA_PERSIST_DIR  = os.environ.get('FAISS_PERSIST_DIR', os.environ.get('CHROMA_PERSIST_DIR', str(BASE_DIR / 'faiss_index')))
 RAG_CHUNK_SIZE      = 512   # words per chunk
 RAG_CHUNK_OVERLAP   = 50    # overlapping words between chunks
 RAG_TOP_K           = 4     # number of chunks to retrieve per query

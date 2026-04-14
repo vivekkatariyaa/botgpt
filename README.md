@@ -4,12 +4,24 @@ A production-ready conversational AI backend built with Django REST Framework, s
 
 ---
 
+## Live Demo
+
+| Service | URL |
+|---|---|
+| Streamlit Chat UI | https://botogpt-vivek.up.railway.app |
+| REST API — Swagger UI | https://botgpt.up.railway.app/api/docs/ |
+| Django Admin | https://botgpt.up.railway.app/admin/ |
+| GitHub Repository | https://github.com/vivekkatariyaa/botgpt |
+
+---
+
 ## Features
 
 - **Two conversation modes** — Open chat (general LLM) and RAG mode (answers grounded in your PDFs)
 - **PDF ingestion pipeline** — Upload up to 3 PDFs per conversation (max 50 MB each), chunked and embedded using LangChain
 - **Groq LLM integration** — Llama 3.3 70B via Groq API (fast, free tier)
 - **Sliding-window context management** — Keeps token usage within limits using `tiktoken`
+- **Per-message limit** — 4000 character cap enforced at both frontend and API level
 - **Retry logic** — Exponential backoff on LLM API failures using `tenacity`
 - **Token authentication** — DRF Token Auth for all protected endpoints
 - **Swagger UI** — Auto-generated interactive API docs via `drf-spectacular`
@@ -27,7 +39,7 @@ A production-ready conversational AI backend built with Django REST Framework, s
 | Package manager | `uv` |
 | Web framework | Django 4.2 + Django REST Framework |
 | LLM | Groq API — Llama 3.3 70B |
-| Vector store | ChromaDB (local persistent) |
+| Vector store | FAISS (local, CPU — no external service needed) |
 | Embeddings | `sentence-transformers` — `all-MiniLM-L6-v2` |
 | PDF parsing | PyMuPDF via LangChain (`PyMuPDFLoader`) |
 | Text chunking | LangChain `RecursiveCharacterTextSplitter` |
@@ -49,6 +61,7 @@ botgpt/
 ├── .github/workflows/ci.yml        ← GitHub Actions CI
 ├── .streamlit/config.toml          ← Streamlit config (upload size)
 ├── Dockerfile                      ← multi-stage Docker build
+├── Dockerfile.streamlit            ← Streamlit service Docker build
 ├── requirements.txt                ← Python dependencies
 ├── pytest.ini                      ← pytest config
 ├── manage.py
@@ -70,7 +83,7 @@ botgpt/
     ├── services/
     │   ├── chat_service.py         ← orchestrates a full chat turn
     │   ├── llm_service.py          ← Groq API calls + retry logic
-    │   ├── rag_service.py          ← LangChain PDF ingestion + ChromaDB retrieval
+    │   ├── rag_service.py          ← LangChain PDF ingestion + FAISS retrieval
     │   └── context_manager.py     ← sliding-window token management
     └── tests/
         ├── test_context_manager.py
@@ -99,7 +112,7 @@ GROQ_API_KEY=your-groq-api-key-here
 GROQ_MODEL=llama-3.3-70b-versatile
 GROQ_MAX_TOKENS=1024
 CONTEXT_TOKEN_LIMIT=6000
-CHROMA_PERSIST_DIR=./chroma_db
+FAISS_PERSIST_DIR=./faiss_index
 ```
 
 Get a free Groq API key at [console.groq.com](https://console.groq.com).
@@ -156,10 +169,13 @@ The server will be available at `http://localhost:8000`.
 uv run pytest
 ```
 
-Tests cover:
-- `ContextManager` — token counting, sliding window, RAG context injection
-- `LLMService` — system prompt generation, mocked Groq API calls
-- API endpoints — register, login, conversation CRUD, auth checks
+22 tests across 3 files:
+
+| File | What is tested |
+|---|---|
+| `test_context_manager.py` | Token counting, sliding window trimming, RAG context injection, summary preservation |
+| `test_llm_service.py` | System prompt for open/RAG mode, mocked Groq API response and token count |
+| `test_api.py` | Register, login, conversation CRUD, send message, 401 on unauthenticated requests |
 
 ---
 
@@ -175,12 +191,12 @@ Authorization: Token <your-token>
 | POST | `/api/auth/register/` | Register a new user, returns token |
 | POST | `/api/auth/login/` | Login, returns token |
 | POST | `/api/conversations/` | Start a new conversation (`mode`: `open` or `rag`) |
-| GET | `/api/conversations/` | List all your conversations |
+| GET | `/api/conversations/` | List all your conversations (paginated, page size 20) |
 | GET | `/api/conversations/{id}/` | Get conversation details + messages |
 | DELETE | `/api/conversations/{id}/` | Delete a conversation |
-| POST | `/api/conversations/{id}/messages/` | Send a message, get LLM reply |
+| POST | `/api/conversations/{id}/messages/` | Send a message (max 4000 chars), get LLM reply |
 | GET | `/api/conversations/{id}/messages/list/` | List all messages |
-| POST | `/api/conversations/{id}/documents/` | Upload a PDF (RAG mode only) |
+| POST | `/api/conversations/{id}/documents/` | Upload a PDF (RAG mode, max 50 MB, max 3 per conversation) |
 | GET | `/api/conversations/{id}/documents/list/` | List uploaded documents |
 
 ### Quick example
@@ -219,5 +235,5 @@ curl -X POST http://localhost:8000/api/conversations/<id>/messages/ \
 ## Notes
 
 - SQLite is used for local development. For production, switch `DATABASES` in `settings.py` to PostgreSQL.
-- ChromaDB and uploaded media files are stored locally and are excluded from git. They are ephemeral in Docker (reset on container restart) — use a volume mount or managed vector store for production.
+- FAISS indices and uploaded media files are stored locally and are excluded from git. They are ephemeral in Docker (reset on container restart) — use a persistent volume or managed vector store (Qdrant / Pinecone) for production.
 - Image-based (scanned) PDFs are not supported — the RAG pipeline requires text-extractable PDFs.
