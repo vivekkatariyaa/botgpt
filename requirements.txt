@@ -16,3 +16,4 @@ sentence-transformers==3.0.1
 langchain==1.2.15
 langchain-community==0.4.1
 langchain-text-splitters
+gunicorn
