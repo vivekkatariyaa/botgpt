@@ -31,4 +31,4 @@ RUN mkdir -p /app/media /app/staticfiles /app/chroma_db
 
 EXPOSE 8000
 
-CMD ["sh", "-c", "python manage.py migrate --noinput && python manage.py shell -c \"from django.contrib.auth.models import User; User.objects.filter(username='vivekn').exists() or User.objects.create_superuser('vivekn', 'admin@example.com', 'vivek@123')\" && gunicorn botgpt.wsgi:application --bind 0.0.0.0:${PORT:-8000} --workers 2 --timeout 120"]
+CMD ["sh", "-c", "python manage.py migrate --noinput && python manage.py shell -c \"from django.contrib.auth.models import User; User.objects.filter(username='vivekn').exists() or User.objects.create_superuser('vivekn', 'admin@example.com', 'vivek@123')\" && gunicorn botgpt.wsgi:application --bind 0.0.0.0:${PORT:-8000} --workers 1 --timeout 120"]
