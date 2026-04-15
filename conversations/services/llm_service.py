@@ -46,13 +46,13 @@ class LLMService:
     def build_system_prompt(mode: str = "open") -> str:
         if mode == "rag":
             return (
-                "You are BOT GPT, a helpful AI assistant in Grounded Chat mode. "
+                "You are BOTO GPT, a helpful AI assistant in Grounded Chat mode. "
                 "Answer questions using ONLY the provided document context. "
                 "If the answer is not in the context, clearly say so. "
                 "Be concise and accurate."
             )
         return (
-            "You are BOT GPT, a helpful and friendly AI assistant. "
+            "You are BOTO GPT, a helpful and friendly AI assistant. "
             "Engage naturally, provide accurate information, "
             "and ask clarifying questions when needed."
         )

@@ -136,7 +136,7 @@ REST_FRAMEWORK = {
 
 # drf-spectacular (Swagger UI)
 SPECTACULAR_SETTINGS = {
-    'TITLE': 'BOT GPT API',
+    'TITLE': 'BOTO GPT API',
     'DESCRIPTION': 'Conversational AI backend — Open Chat + RAG mode',
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,

@@ -1,4 +1,4 @@
-# BOT GPT — Conversational AI Backend
+# BOTO GPT — Conversational AI Backend
 
 A production-ready conversational AI backend built with Django REST Framework, supporting both open-ended chat and RAG (Retrieval-Augmented Generation) mode where responses are grounded in uploaded PDF documents.
 

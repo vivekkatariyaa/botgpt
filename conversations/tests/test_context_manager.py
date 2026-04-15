@@ -22,15 +22,15 @@ class TestContextManager:
 
     def test_system_prompt_is_always_first(self):
         result = self.cm.build_context(
-            system_prompt="You are BOT GPT.",
+            system_prompt="You are BOTO GPT.",
             messages=[{"role": "user", "content": "Hello", "is_summary": False}],
         )
         assert result[0]["role"] == "system"
-        assert "BOT GPT" in result[0]["content"]
+        assert "BOTO GPT" in result[0]["content"]
 
     def test_empty_history_returns_system_only(self):
         result = self.cm.build_context(
-            system_prompt="You are BOT GPT.",
+            system_prompt="You are BOTO GPT.",
             messages=[],
         )
         assert len(result) == 1
@@ -38,7 +38,7 @@ class TestContextManager:
 
     def test_rag_context_injected_after_system_prompt(self):
         result = self.cm.build_context(
-            system_prompt="You are BOT GPT.",
+            system_prompt="You are BOTO GPT.",
             messages=[],
             rag_context="Relevant document text here.",
         )

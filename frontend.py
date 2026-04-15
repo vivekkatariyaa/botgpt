@@ -20,7 +20,7 @@ def show_connection_error() -> None:
 
 # ─── Page config ─────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="BOT GPT",
+    page_title="BOTO GPT",
     page_icon="🤖",
     layout="wide",
 )
@@ -151,7 +151,7 @@ def refresh_conversations():
 
 # ─── AUTH SCREEN ─────────────────────────────────────────────────────────────
 if not st.session_state.token:
-    st.markdown("<h1 style='text-align:center;'>🤖 BOT GPT</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align:center;'>🤖 BOTO GPT</h1>", unsafe_allow_html=True)
     st.markdown("<p style='text-align:center; color:#888;'>Conversational AI — Open Chat & RAG Mode</p>", unsafe_allow_html=True)
     st.divider()
 
@@ -210,7 +210,7 @@ if not st.session_state.token:
 
 # ── Sidebar ──────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown(f"<div class='sidebar-title'>🤖 BOT GPT</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='sidebar-title'>🤖 BOTO GPT</div>", unsafe_allow_html=True)
     st.markdown(f"<div class='sidebar-sub'>Logged in as <b>{st.session_state.username}</b></div>", unsafe_allow_html=True)
 
     # New chat button

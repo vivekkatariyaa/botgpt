@@ -1,4 +1,4 @@
-# BOT GPT — System Design Document
+# BOTO GPT — System Design Document
 
 **Senior AI Engineer Case Study Submission**
 
@@ -6,7 +6,7 @@
 
 ## 1. Context & Problem Statement
 
-BOT GPT is a production-grade conversational AI backend supporting:
+BOTO GPT is a production-grade conversational AI backend supporting:
 - Internal enterprise assistants
 - Customer-facing chatbots
 - Multi-turn document-grounded workflows
@@ -366,4 +366,4 @@ On push to main:
 
 ---
 
-*BOT GPT — Senior AI Engineer Case Study*
+*BOTO GPT — Senior AI Engineer Case Study*

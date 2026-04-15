@@ -10,7 +10,7 @@ class TestSystemPrompt:
     def test_open_mode_prompt_contains_bot_gpt(self):
         from conversations.services.llm_service import LLMService
         prompt = LLMService.build_system_prompt("open")
-        assert "BOT GPT" in prompt
+        assert "BOTO GPT" in prompt
 
     def test_rag_mode_prompt_mentions_context(self):
         from conversations.services.llm_service import LLMService
