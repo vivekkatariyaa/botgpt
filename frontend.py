@@ -4,6 +4,20 @@ import requests
 
 API_BASE = os.environ.get("API_BASE_URL", "http://localhost:8000/api")
 
+
+def show_connection_error() -> None:
+    """Human-friendly copy when the API is unreachable (connection refused, etc.)."""
+    st.error(
+        "We couldn't reach the chat service just now. "
+        "It may still be starting, or it might be turned off—please wait a few seconds and try again."
+    )
+    st.caption(
+        "If you're running this project on your own machine, start the backend server from your project folder, "
+        "then try logging in again. "
+        f"This page is looking for the API at: {API_BASE}"
+    )
+
+
 # ─── Page config ─────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="BOT GPT",
@@ -28,6 +42,56 @@ if "username"        not in st.session_state: st.session_state.username        =
 if "conversations"   not in st.session_state: st.session_state.conversations   = []
 if "active_conv_id"  not in st.session_state: st.session_state.active_conv_id  = None
 if "messages"        not in st.session_state: st.session_state.messages        = []
+
+
+def format_api_error(r: requests.Response) -> str:
+    """Turn API JSON (e.g. DRF field errors) into short, readable text."""
+    try:
+        payload = r.json()
+    except ValueError:
+        text = (r.text or "").strip()
+        return text[:500] if text else f"Request failed (HTTP {r.status_code}). Please try again."
+
+    if isinstance(payload, str):
+        return payload
+    if not isinstance(payload, dict):
+        return str(payload)
+
+    if "detail" in payload:
+        d = payload["detail"]
+        if isinstance(d, list):
+            return " ".join(str(x) for x in d)
+        return str(d)
+
+    field_labels = {
+        "username": "Username",
+        "email": "Email",
+        "password": "Password",
+        "non_field_errors": "",
+    }
+    parts: list[str] = []
+    for field, messages in payload.items():
+        if field == "detail":
+            continue
+        label = field_labels.get(field, field.replace("_", " ").capitalize())
+        if isinstance(messages, list):
+            msg = " ".join(str(m) for m in messages)
+        else:
+            msg = str(messages)
+        if field == "non_field_errors":
+            parts.append(msg)
+        elif label:
+            parts.append(f"{label}: {msg}")
+        else:
+            parts.append(msg)
+
+    if parts:
+        return "\n".join(parts)
+
+    if "error" in payload:
+        return str(payload["error"])
+
+    return f"Something went wrong (HTTP {r.status_code}). Please try again."
 
 
 # ─── API helpers ─────────────────────────────────────────────────────────────
@@ -99,15 +163,19 @@ if not st.session_state.token:
         password = st.text_input("Password", type="password", key="login_pass")
         if st.button("Login", use_container_width=True, type="primary"):
             if username and password:
-                r = api_login(username, password)
-                if r.status_code == 200:
-                    data = r.json()
-                    st.session_state.token    = data["token"]
-                    st.session_state.username = data["user"]["username"]
-                    refresh_conversations()
-                    st.rerun()
+                try:
+                    r = api_login(username, password)
+                except requests.exceptions.ConnectionError:
+                    show_connection_error()
                 else:
-                    st.error("Invalid credentials. Please try again.")
+                    if r.status_code == 200:
+                        data = r.json()
+                        st.session_state.token    = data["token"]
+                        st.session_state.username = data["user"]["username"]
+                        refresh_conversations()
+                        st.rerun()
+                    else:
+                        st.error(format_api_error(r) if r.content else "Invalid credentials. Please try again.")
             else:
                 st.warning("Please enter username and password.")
 
@@ -118,17 +186,20 @@ if not st.session_state.token:
         reg_password = st.text_input("Password (min 8 chars)", type="password", key="reg_pass")
         if st.button("Register", use_container_width=True, type="primary"):
             if reg_username and reg_password:
-                r = api_register(reg_username, reg_email, reg_password)
-                if r.status_code == 201:
-                    data = r.json()
-                    st.session_state.token    = data["token"]
-                    st.session_state.username = data["user"]["username"]
-                    refresh_conversations()
-                    st.success("Account created!")
-                    st.rerun()
+                try:
+                    r = api_register(reg_username, reg_email, reg_password)
+                except requests.exceptions.ConnectionError:
+                    show_connection_error()
                 else:
-                    err = r.json()
-                    st.error(f"Error: {err}")
+                    if r.status_code == 201:
+                        data = r.json()
+                        st.session_state.token    = data["token"]
+                        st.session_state.username = data["user"]["username"]
+                        refresh_conversations()
+                        st.success("Account created!")
+                        st.rerun()
+                    else:
+                        st.error(format_api_error(r))
             else:
                 st.warning("Please fill in all fields.")
 
@@ -207,8 +278,7 @@ with st.sidebar:
                             st.success(f"✅ Indexed {doc['chunk_count']} chunks from `{doc['filename']}`")
                             st.rerun()
                         else:
-                            err = r.json()
-                            st.error(f"Upload failed: {err.get('error', err)}")
+                            st.error(f"Upload failed: {format_api_error(r)}")
             else:
                 st.warning(f"Maximum {MAX_DOCS} documents reached. Delete a conversation to upload more.")
 
@@ -260,9 +330,15 @@ if not st.session_state.active_conv_id:
     if mode_choice == "rag":
         st.info("📄 You can upload a PDF after the conversation starts. Select RAG mode, send your first message, then upload the PDF from the sidebar.")
 
-user_input = st.chat_input("Type your message here...")
+MAX_MESSAGE_CHARS = 4000
+
+user_input = st.chat_input("Type your message here… (max 4000 characters)")
 
 if user_input:
+    if len(user_input) > MAX_MESSAGE_CHARS:
+        st.warning(f"Message too long ({len(user_input)}/{MAX_MESSAGE_CHARS} characters). Please shorten it.")
+        st.stop()
+
     if not st.session_state.active_conv_id:
         # Start new conversation
         with st.spinner("Starting conversation..."):
@@ -275,7 +351,7 @@ if user_input:
             ]
             st.rerun()
         else:
-            st.error(f"Error: {r.json()}")
+            st.error(format_api_error(r))
     else:
         # Continue existing conversation
         st.session_state.messages.append({"role": "user", "content": user_input})

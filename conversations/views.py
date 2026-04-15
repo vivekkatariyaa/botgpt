@@ -116,8 +116,17 @@ class ConversationViewSet(
         serializer = SendMessageSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
+        content = serializer.validated_data['content']
+
+        # Per-message character limit (~1000 tokens)
+        if len(content) > 4000:
+            return Response(
+                {'error': 'Message too long. Maximum 4000 characters per message.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         try:
-            assistant_msg = _chat_service.handle_message(conversation, serializer.validated_data['content'])
+            assistant_msg = _chat_service.handle_message(conversation, content)
         except Exception as exc:
             return Response(
                 {'error': 'LLM service error. Please try again.', 'detail': str(exc)},

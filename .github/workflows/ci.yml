@@ -16,7 +16,7 @@ jobs:
       SECRET_KEY: "ci-test-secret-key"
       ALLOWED_HOSTS: "localhost,127.0.0.1"
       GROQ_API_KEY: "dummy-key-for-tests"
-      CHROMA_PERSIST_DIR: "/tmp/chroma_test"
+      FAISS_PERSIST_DIR: "/tmp/faiss_test"
       DJANGO_SETTINGS_MODULE: "botgpt.settings"
 
     steps:

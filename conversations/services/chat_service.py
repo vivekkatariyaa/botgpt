@@ -7,7 +7,8 @@ ChatService — orchestrates a full chat turn.
      → injects RAG chunks between system prompt and history
   4. Calls LLM (via LLMService)
   5. Saves assistant reply
-  6. Returns the assistant Message object
+  6. If token budget > 80% → summarises old messages and resets history
+  7. Returns the assistant Message object
 """
 import logging
 from django.db import transaction
@@ -27,12 +28,15 @@ _ctx_mgr = ContextManager(
     response_buffer=settings.GROQ_MAX_TOKENS,
 )
 
+# Trigger summarisation when token usage hits 80% of the limit
+SUMMARISE_THRESHOLD = 0.8
+
 
 class ChatService:
     def handle_message(self, conversation: Conversation, user_content: str) -> Message:
         """
         Full chat turn: save user msg → RAG retrieve (if RAG mode)
-        → build context → call LLM → save reply.
+        → build context → call LLM → save reply → summarise if needed.
         Returns the saved assistant Message.
         """
         # 1. Save user message
@@ -75,7 +79,7 @@ class ChatService:
         context_messages = _ctx_mgr.build_context(
             system_prompt=system_prompt,
             messages=history,
-            rag_context=rag_context,      # ← injected here
+            rag_context=rag_context,
         )
 
         # 5. Call LLM
@@ -95,7 +99,88 @@ class ChatService:
             conversation.save(update_fields=["title", "total_tokens_used", "updated_at"])
 
         logger.info(
-            "Conversation %s — turn complete (%s mode), %d tokens used.",
-            conversation.id, conversation.mode, tokens_used
+            "Conversation %s — turn complete (%s mode), %d tokens used (total: %d).",
+            conversation.id, conversation.mode, tokens_used, conversation.total_tokens_used
         )
+
+        # 7. Summarise if token budget > 80%
+        token_limit = settings.CONTEXT_TOKEN_LIMIT
+        if conversation.total_tokens_used >= token_limit * SUMMARISE_THRESHOLD:
+            self._summarise(conversation)
+
         return assistant_msg
+
+    def _summarise(self, conversation: Conversation) -> None:
+        """
+        Summarise the non-summary messages in this conversation.
+
+        Steps:
+          1. Fetch all non-summary messages
+          2. Ask the LLM to produce a 3-5 sentence summary
+          3. Delete all old non-summary messages
+          4. Save the summary as a single system message with is_summary=True
+          5. Reset conversation.total_tokens_used to the summary's token count
+        """
+        regular_msgs = list(
+            conversation.messages
+            .filter(is_summary=False)
+            .order_by("created_at", "id")
+        )
+
+        if len(regular_msgs) < 4:
+            # Not enough messages to be worth summarising
+            return
+
+        logger.info(
+            "Summarising conversation %s (%d messages, %d tokens used).",
+            conversation.id, len(regular_msgs), conversation.total_tokens_used
+        )
+
+        # Build the conversation text to summarise
+        convo_text = "\n".join(
+            f"{m.role.upper()}: {m.content}" for m in regular_msgs
+        )
+
+        summary_prompt = [
+            {
+                "role": "system",
+                "content": (
+                    "You are a conversation summariser. "
+                    "Summarise the following conversation in 3-5 concise sentences, "
+                    "capturing the key topics, decisions, and context needed to continue the conversation. "
+                    "Write in third person (e.g. 'The user asked about...')."
+                ),
+            },
+            {
+                "role": "user",
+                "content": f"Summarise this conversation:\n\n{convo_text}",
+            },
+        ]
+
+        try:
+            summary_text, summary_tokens = _llm.chat(summary_prompt)
+        except Exception as exc:
+            logger.error("Summarisation failed for conversation %s: %s", conversation.id, exc)
+            return
+
+        with transaction.atomic():
+            # Delete all old non-summary messages
+            conversation.messages.filter(is_summary=False).delete()
+
+            # Save the summary as a system message
+            Message.objects.create(
+                conversation=conversation,
+                role=Message.Role.SYSTEM,
+                content=f"[SUMMARY OF EARLIER CONVERSATION]\n{summary_text}",
+                tokens_used=summary_tokens,
+                is_summary=True,
+            )
+
+            # Reset token counter to just the summary's size
+            conversation.total_tokens_used = summary_tokens
+            conversation.save(update_fields=["total_tokens_used", "updated_at"])
+
+        logger.info(
+            "Conversation %s summarised — history compressed to %d tokens.",
+            conversation.id, summary_tokens
+        )

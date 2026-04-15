@@ -39,7 +39,7 @@ def get_embeddings() -> HuggingFaceEmbeddings:
 
 def _collection_dir(conversation_id: str) -> str:
     """Each conversation gets its own sub-folder inside the vector store base."""
-    base = settings.CHROMA_PERSIST_DIR
+    base = settings.FAISS_PERSIST_DIR
     path = os.path.join(base, f"conv_{str(conversation_id).replace('-', '_')}")
     os.makedirs(path, exist_ok=True)
     return path
